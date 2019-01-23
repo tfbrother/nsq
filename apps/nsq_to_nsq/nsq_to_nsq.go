@@ -19,9 +19,9 @@ import (
 	"github.com/bitly/go-hostpool"
 	"github.com/bitly/timer_metrics"
 	"github.com/nsqio/go-nsq"
-	"github.com/nsqio/nsq/internal/app"
-	"github.com/nsqio/nsq/internal/protocol"
-	"github.com/nsqio/nsq/internal/version"
+	"github.com/tfbrother/nsq/internal/app"
+	"github.com/tfbrother/nsq/internal/protocol"
+	"github.com/tfbrother/nsq/internal/version"
 )
 
 const (

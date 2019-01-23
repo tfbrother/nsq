@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsqio/nsq/internal/test"
-	"github.com/nsqio/nsq/internal/version"
-	"github.com/nsqio/nsq/nsqd"
+	"github.com/tfbrother/nsq/internal/test"
+	"github.com/tfbrother/nsq/internal/version"
+	"github.com/tfbrother/nsq/nsqd"
 )
 
 type InfoDoc struct {

@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/nsqio/go-diskqueue"
-	"github.com/nsqio/nsq/internal/lg"
-	"github.com/nsqio/nsq/internal/quantile"
-	"github.com/nsqio/nsq/internal/util"
+	"github.com/tfbrother/nsq/internal/lg"
+	"github.com/tfbrother/nsq/internal/quantile"
+	"github.com/tfbrother/nsq/internal/util"
 )
 
 type Topic struct {
@@ -21,9 +21,12 @@ type Topic struct {
 
 	sync.RWMutex
 
-	name              string
-	channelMap        map[string]*Channel
-	backend           BackendQueue
+	name       string
+	channelMap map[string]*Channel // 一个Topic实例下有多个Channel
+	backend    BackendQueue
+	// 如果想要往该topic发布消息，只需要将消息写到Topic.memoryMsgChan中
+	// 创建Topic时会开启一个新的goroutine(messagePump)负责监听Topic.memoryMsgChan，
+	// 当有新消息时会将将消息复制N份发送到该Topic下的所有Channel中
 	memoryMsgChan     chan *Message
 	startChan         chan int
 	exitChan          chan int
@@ -307,6 +310,7 @@ func (t *Topic) messagePump() {
 			goto exit
 		}
 
+		// TODO // 将msg复制N份，发送到topic下的N个Channel中
 		for i, channel := range chans {
 			chanMsg := msg
 			// copy the message because each channel

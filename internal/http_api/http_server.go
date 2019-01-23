@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/nsqio/nsq/internal/lg"
+	"github.com/tfbrother/nsq/internal/lg"
 )
 
 type logWriter struct {

@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsqio/nsq/internal/clusterinfo"
-	"github.com/nsqio/nsq/internal/test"
-	"github.com/nsqio/nsq/internal/version"
-	"github.com/nsqio/nsq/nsqd"
-	"github.com/nsqio/nsq/nsqlookupd"
+	"github.com/tfbrother/nsq/internal/clusterinfo"
+	"github.com/tfbrother/nsq/internal/test"
+	"github.com/tfbrother/nsq/internal/version"
+	"github.com/tfbrother/nsq/nsqd"
+	"github.com/tfbrother/nsq/nsqlookupd"
 )
 
 type TopicsDoc struct {

@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/nsqio/go-diskqueue"
-	"github.com/nsqio/nsq/internal/lg"
-	"github.com/nsqio/nsq/internal/pqueue"
-	"github.com/nsqio/nsq/internal/quantile"
+	"github.com/tfbrother/nsq/internal/lg"
+	"github.com/tfbrother/nsq/internal/pqueue"
+	"github.com/tfbrother/nsq/internal/quantile"
 )
 
 type Consumer interface {
@@ -45,14 +45,14 @@ type Channel struct {
 	name      string
 	ctx       *context
 
-	backend BackendQueue
+	backend BackendQueue // channel自己的数据队列
 
 	memoryMsgChan chan *Message
-	exitFlag      int32
+	exitFlag      int32 // 标记是否正在退出
 	exitMutex     sync.RWMutex
 
 	// state tracking
-	clients        map[int64]Consumer
+	clients        map[int64]Consumer // 维护该channel下面的Consumer
 	paused         int32
 	ephemeral      bool
 	deleteCallback func(*Channel)
@@ -63,10 +63,10 @@ type Channel struct {
 
 	// TODO: these can be DRYd up
 	deferredMessages map[MessageID]*pqueue.Item
-	deferredPQ       pqueue.PriorityQueue
+	deferredPQ       pqueue.PriorityQueue // 投递失败，等待重新投递的消息
 	deferredMutex    sync.Mutex
-	inFlightMessages map[MessageID]*Message
-	inFlightPQ       inFlightPqueue
+	inFlightMessages map[MessageID]*Message // 管理发送出去但是对端没有确认收到的消息
+	inFlightPQ       inFlightPqueue         // 正在投递但还没确认投递成功的消息 type inFlightPqueue []*Message
 	inFlightMutex    sync.Mutex
 }
 

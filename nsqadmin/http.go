@@ -17,11 +17,11 @@ import (
 	"time"
 
 	"github.com/julienschmidt/httprouter"
-	"github.com/nsqio/nsq/internal/clusterinfo"
-	"github.com/nsqio/nsq/internal/http_api"
-	"github.com/nsqio/nsq/internal/lg"
-	"github.com/nsqio/nsq/internal/protocol"
-	"github.com/nsqio/nsq/internal/version"
+	"github.com/tfbrother/nsq/internal/clusterinfo"
+	"github.com/tfbrother/nsq/internal/http_api"
+	"github.com/tfbrother/nsq/internal/lg"
+	"github.com/tfbrother/nsq/internal/protocol"
+	"github.com/tfbrother/nsq/internal/version"
 )
 
 func maybeWarnMsg(msgs []string) string {

@@ -2,7 +2,7 @@
 <img align="left" width="175" src="http://nsq.io/static/img/nsq_blue.png">
 <ul>
 <li><strong>Source</strong>: https://github.com/nsqio/nsq
-<li><strong>Issues</strong>: https://github.com/nsqio/nsq/issues
+<li><strong>Issues</strong>: https://github.com/tfbrother/nsq/issues
 <li><strong>Mailing List</strong>: <a href="https://groups.google.com/d/forum/nsq-users">nsq-users@googlegroups.com</a>
 <li><strong>IRC</strong>: #nsq on freenode
 <li><strong>Docs</strong>: http://nsq.io
@@ -10,7 +10,7 @@
 </ul>
 </p>
 
-[![Build Status](https://secure.travis-ci.org/nsqio/nsq.svg?branch=master)](http://travis-ci.org/nsqio/nsq) [![GitHub release](https://img.shields.io/github/release/nsqio/nsq.svg)](https://github.com/nsqio/nsq/releases/latest) [![Coverage Status](https://coveralls.io/repos/github/nsqio/nsq/badge.svg?branch=master)](https://coveralls.io/github/nsqio/nsq?branch=master)
+[![Build Status](https://secure.travis-ci.org/nsqio/nsq.svg?branch=master)](http://travis-ci.org/nsqio/nsq) [![GitHub release](https://img.shields.io/github/release/nsqio/nsq.svg)](https://github.com/tfbrother/nsq/releases/latest) [![Coverage Status](https://coveralls.io/repos/github/tfbrother/nsq/badge.svg?branch=master)](https://coveralls.io/github/nsqio/nsq?branch=master)
 
 **NSQ** is a realtime distributed messaging platform designed to operate at scale, handling
 billions of messages per day.
@@ -95,6 +95,6 @@ Logo created by Wolasi Konu ([@kisalow][wolasi_twitter]).
 [jehiah_twitter]: https://twitter.com/jehiah
 [bitly]: https://bitly.com
 [features_guarantees]: http://nsq.io/overview/features_and_guarantees.html
-[contributors]: https://github.com/nsqio/nsq/graphs/contributors
+[contributors]: https://github.com/tfbrother/nsq/graphs/contributors
 [client_libraries]: http://nsq.io/clients/client_libraries.html
 [wolasi_twitter]: https://twitter.com/kisalow

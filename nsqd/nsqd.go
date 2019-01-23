@@ -17,14 +17,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nsqio/nsq/internal/clusterinfo"
-	"github.com/nsqio/nsq/internal/dirlock"
-	"github.com/nsqio/nsq/internal/http_api"
-	"github.com/nsqio/nsq/internal/lg"
-	"github.com/nsqio/nsq/internal/protocol"
-	"github.com/nsqio/nsq/internal/statsd"
-	"github.com/nsqio/nsq/internal/util"
-	"github.com/nsqio/nsq/internal/version"
+	"github.com/tfbrother/nsq/internal/clusterinfo"
+	"github.com/tfbrother/nsq/internal/dirlock"
+	"github.com/tfbrother/nsq/internal/http_api"
+	"github.com/tfbrother/nsq/internal/lg"
+	"github.com/tfbrother/nsq/internal/protocol"
+	"github.com/tfbrother/nsq/internal/statsd"
+	"github.com/tfbrother/nsq/internal/util"
+	"github.com/tfbrother/nsq/internal/version"
 )
 
 const (

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/golang/snappy"
-	"github.com/nsqio/nsq/internal/auth"
+	"github.com/tfbrother/nsq/internal/auth"
 )
 
 const defaultBufferSize = 16 * 1024
@@ -72,8 +72,8 @@ type clientV2 struct {
 	flateWriter *flate.Writer
 
 	// reading/writing interfaces
-	Reader *bufio.Reader
-	Writer *bufio.Writer
+	Reader *bufio.Reader // 将net.Conn封装为Reader对象
+	Writer *bufio.Writer // 将net.Conn封装为Writer对象
 
 	OutputBufferSize    int
 	OutputBufferTimeout time.Duration
