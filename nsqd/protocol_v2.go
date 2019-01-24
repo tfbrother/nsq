@@ -229,11 +229,13 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 
 	// signal to the goroutine that started the messagePump
 	// that we've started up
-	close(startedChan)
+	close(startedChan) // 通知外面我们运行了
 
 	for {
+		// IsReadyForMessages就是检查Client的RDY命令所设置的ReadyCount，判断是否可以继续向Client发送消息
 		if subChannel == nil || !client.IsReadyForMessages() {
 			// the client is not ready to receive messages...
+			// 客户端还未做好准备则将clientMsgChan设置为nil
 			memoryMsgChan = nil
 			backendMsgChan = nil
 			flusherChan = nil
@@ -248,6 +250,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 		} else if flushed {
 			// last iteration we flushed...
 			// do not select on the flusher ticker channel
+			// 客户端做好准备，则试图从订阅的Channel的clientMsgChan中读取消息
 			memoryMsgChan = subChannel.memoryMsgChan
 			backendMsgChan = subChannel.backend.ReadChan()
 			flusherChan = nil
@@ -259,6 +262,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			flusherChan = outputBufferTicker.C
 		}
 
+		// 接收到客户端发送的RDY命令后，则会向ReadyStateChan中写入消息，下面的case条件则可满足，重新进入for循环
 		select {
 		case <-flusherChan:
 			// if this case wins, we're either starved
@@ -274,9 +278,12 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 		case <-client.ReadyStateChan:
 		case subChannel = <-subEventChan:
 			// you can't SUB anymore
+			// 接收到客户端发送的SUB命令后，会向subEventChan中写入消息，
+			// subEventChan则被置为nil，所以一个客户端只能订阅一次Channel
 			subEventChan = nil
 		case identifyData := <-identifyEventChan:
 			// you can't IDENTIFY anymore
+			// 只能认证一次
 			identifyEventChan = nil
 
 			outputBufferTicker.Stop()
@@ -297,6 +304,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 
 			msgTimeout = identifyData.MsgTimeout
 		case <-heartbeatChan:
+			// 发送心跳消息
 			err = p.Send(client, frameTypeResponse, heartbeatBytes)
 			if err != nil {
 				goto exit
@@ -326,9 +334,13 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			}
 			msg.Attempts++
 
-			subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout)
-			client.SendingMessage()
-			err = p.SendMessage(client, msg)
+			// 以消息的发送时间排序，将消息放在一个最小时间堆上，如果在规定时间内收到对该消息的确认回复(FIN messageId),
+			// 说明消息以被消费者成功处理，会将该消息从堆中删除
+
+			// 如果超过一定时间没有接受 FIN messageId，会从堆中取出该消息重新发送，所以nsq能确保一个消息至少被一个i消费处理。
+			subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout) // 添加到队列
+			client.SendingMessage()                                     // 消息统计
+			err = p.SendMessage(client, msg)                            // 发送到网络
 			if err != nil {
 				goto exit
 			}

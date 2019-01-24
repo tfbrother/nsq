@@ -14,8 +14,10 @@ import (
 	"github.com/tfbrother/nsq/internal/auth"
 )
 
+// 缓冲大小，默认16KB
 const defaultBufferSize = 16 * 1024
 
+// 状态
 const (
 	stateInit = iota
 	stateDisconnected
@@ -24,6 +26,7 @@ const (
 	stateClosing
 )
 
+// 客户端认证上传的数据
 type identifyDataV2 struct {
 	ClientID            string `json:"client_id"`
 	Hostname            string `json:"hostname"`
@@ -40,6 +43,7 @@ type identifyDataV2 struct {
 	MsgTimeout          int    `json:"msg_timeout"`
 }
 
+// 认证事件
 type identifyEvent struct {
 	OutputBufferTimeout time.Duration
 	HeartbeatInterval   time.Duration
@@ -84,14 +88,14 @@ type clientV2 struct {
 
 	State          int32
 	ConnectTime    time.Time
-	Channel        *Channel
-	ReadyStateChan chan int
-	ExitChan       chan int
+	Channel        *Channel // 自己所订阅的Channel
+	ReadyStateChan chan int // protocolV2的messagePump处理
+	ExitChan       chan int // protocolV2的messagePump处理
 
 	ClientID string
 	Hostname string
 
-	SampleRate int32
+	SampleRate int32 // 抽样率
 
 	IdentifyEventChan chan identifyEvent
 	SubEventChan      chan *Channel
@@ -101,7 +105,7 @@ type clientV2 struct {
 	Deflate int32
 
 	// re-usable buffer for reading the 4-byte lengths off the wire
-	lenBuf   [4]byte
+	lenBuf   [4]byte // [ 4-byte size in bytes ] 即消息体中前面四个字节表示消息长度（不包括这四个字节的长度）
 	lenSlice []byte
 
 	AuthSecret string
@@ -154,6 +158,7 @@ func (c *clientV2) String() string {
 	return c.RemoteAddr().String()
 }
 
+// 使用identifyDataV2信息给客户端认证信息
 func (c *clientV2) Identify(data identifyDataV2) error {
 	c.ctx.nsqd.logf(LOG_INFO, "[%s] IDENTIFY: %+v", c, data)
 
@@ -188,6 +193,7 @@ func (c *clientV2) Identify(data identifyDataV2) error {
 		return err
 	}
 
+	// 创建identifyEvent，用于通知相关参数
 	ie := identifyEvent{
 		OutputBufferTimeout: c.OutputBufferTimeout,
 		HeartbeatInterval:   c.HeartbeatInterval,
@@ -197,7 +203,7 @@ func (c *clientV2) Identify(data identifyDataV2) error {
 
 	// update the client's message pump
 	select {
-	case c.IdentifyEventChan <- ie:
+	case c.IdentifyEventChan <- ie: // protocolV2的messagePump处理
 	default:
 	}
 
@@ -267,6 +273,7 @@ type prettyConnectionState struct {
 	tls.ConnectionState
 }
 
+// 获取加密类型
 func (p *prettyConnectionState) GetCipherSuite() string {
 	switch p.CipherSuite {
 	case tls.TLS_RSA_WITH_RC4_128_SHA:
@@ -299,6 +306,7 @@ func (p *prettyConnectionState) GetCipherSuite() string {
 	return fmt.Sprintf("Unknown %d", p.CipherSuite)
 }
 
+// 获取TLS/SSL的版本
 func (p *prettyConnectionState) GetVersion() string {
 	switch p.Version {
 	case tls.VersionSSL30:
@@ -314,8 +322,9 @@ func (p *prettyConnectionState) GetVersion() string {
 	}
 }
 
+// 是否准备好接收消息
 func (c *clientV2) IsReadyForMessages() bool {
-	if c.Channel.IsPaused() {
+	if c.Channel.IsPaused() { // Channel为暂停状态，那么没有准备好
 		return false
 	}
 
@@ -324,6 +333,7 @@ func (c *clientV2) IsReadyForMessages() bool {
 
 	c.ctx.nsqd.logf(LOG_DEBUG, "[%s] state rdy: %4d inflt: %4d", c, readyCount, inFlightCount)
 
+	// 没有确认的消息大于消费者最大的接收数据
 	if inFlightCount >= readyCount || readyCount <= 0 {
 		return false
 	}
