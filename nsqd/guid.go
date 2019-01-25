@@ -24,6 +24,8 @@ const (
 	sequenceMask   = int64(-1) ^ (int64(-1) << sequenceBits)
 
 	// ( 2012-10-28 16:23:42 UTC ).UnixNano() >> 20
+	// TODO see nsqd: optimize guid generation #663
+	// https://github.com/nsqio/nsq/pull/663/files
 	twepoch = int64(1288834974288)
 )
 

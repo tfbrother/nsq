@@ -4,6 +4,8 @@ import (
 	"errors"
 )
 
+// util: speed up failure path of ByteToBase10
+// see https://github.com/nsqio/nsq/pull/505/files
 var errBase10 = errors.New("failed to convert to Base10")
 
 func ByteToBase10(b []byte) (n uint64, err error) {

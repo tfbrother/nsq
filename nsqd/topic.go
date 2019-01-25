@@ -30,12 +30,14 @@ type Topic struct {
 	memoryMsgChan     chan *Message
 	startChan         chan int
 	exitChan          chan int
-	channelUpdateChan chan int
-	waitGroup         util.WaitGroupWrapper
-	exitFlag          int32
+	channelUpdateChan chan int              // 通知channelMap的更新，在messagePump中处理
+	waitGroup         util.WaitGroupWrapper // 等待全部的goroutine退出
+	exitFlag          int32                 // 标记是否退出
 	idFactory         *guidFactory
 
-	ephemeral      bool
+	ephemeral bool // 临时(代码的意思是如果设置为ephemeral的topic在不存在channel的情况下面要销毁 )
+
+	// 删除topic的回调
 	deleteCallback func(*Topic)
 	deleter        sync.Once
 
@@ -46,10 +48,12 @@ type Topic struct {
 }
 
 // Topic constructor
+// 创建Topic对象（主题名字、上下文对象(NSQD)、删除Topic回调函数）
 func NewTopic(topicName string, ctx *context, deleteCallback func(*Topic)) *Topic {
 	t := &Topic{
-		name:              topicName,
-		channelMap:        make(map[string]*Channel),
+		name:       topicName,
+		channelMap: make(map[string]*Channel),
+		// 消息到达的数量，可以通过MemQueueSize配置大小
 		memoryMsgChan:     make(chan *Message, ctx.nsqd.getOpts().MemQueueSize),
 		startChan:         make(chan int, 1),
 		exitChan:          make(chan int),
@@ -61,6 +65,10 @@ func NewTopic(topicName string, ctx *context, deleteCallback func(*Topic)) *Topi
 		idFactory:         NewGUIDFactory(ctx.nsqd.getOpts().ID),
 	}
 
+	/*
+		Note, a topic/channel whose name ends in the string #ephemeral will not be buffered to disk and will instead drop messages after passing the mem-queue-size.
+		This enables consumers which do not need message guarantees to subscribe to a channel.These ephemeral channels will also disappear after its last client disconnects.
+	*/
 	if strings.HasSuffix(topicName, "#ephemeral") {
 		t.ephemeral = true
 		t.backend = newDummyBackendQueue()
@@ -74,13 +82,14 @@ func NewTopic(topicName string, ctx *context, deleteCallback func(*Topic)) *Topi
 			ctx.nsqd.getOpts().DataPath,
 			ctx.nsqd.getOpts().MaxBytesPerFile,
 			int32(minValidMsgLength),
-			int32(ctx.nsqd.getOpts().MaxMsgSize)+minValidMsgLength,
+			int32(ctx.nsqd.getOpts().MaxMsgSize)+minValidMsgLength, // 大小为什么是这样的需要分析message结构
 			ctx.nsqd.getOpts().SyncEvery,
 			ctx.nsqd.getOpts().SyncTimeout,
 			dqLogf,
 		)
 	}
 
+	// 开启一个goroutine负责监听写到该Topic的消息
 	t.waitGroup.Wrap(t.messagePump)
 
 	t.ctx.nsqd.Notify(t)
@@ -96,6 +105,7 @@ func (t *Topic) Start() {
 }
 
 // Exiting returns a boolean indicating if this topic is closed/exiting
+// 将exitFlag标记为1,说明需要正在退出
 func (t *Topic) Exiting() bool {
 	return atomic.LoadInt32(&t.exitFlag) == 1
 }
@@ -105,13 +115,15 @@ func (t *Topic) Exiting() bool {
 // for the given Topic
 func (t *Topic) GetChannel(channelName string) *Channel {
 	t.Lock()
+	// 获取channel,如果不存在就创建一个新的
 	channel, isNew := t.getOrCreateChannel(channelName)
 	t.Unlock()
 
 	if isNew {
 		// update messagePump state
+		// 如果是新，那么更新channel
 		select {
-		case t.channelUpdateChan <- 1:
+		case t.channelUpdateChan <- 1: // 处理channelMap的更新
 		case <-t.exitChan:
 		}
 	}
@@ -161,14 +173,16 @@ func (t *Topic) DeleteExistingChannel(channelName string) error {
 
 	// delete empties the channel before closing
 	// (so that we dont leave any messages around)
+	// 删除Channle，具体怎么删除下面分析
 	channel.Delete()
 
 	// update messagePump state
 	select {
-	case t.channelUpdateChan <- 1:
+	case t.channelUpdateChan <- 1: // 通知channelMap已经被更新
 	case <-t.exitChan:
 	}
 
+	// 如果这个topic不存在channel了同时是ephemeral的情况下，需要删除这个topic
 	if numChannels == 0 && t.ephemeral == true {
 		go t.deleter.Do(func() { t.deleteCallback(t) })
 	}
@@ -177,22 +191,29 @@ func (t *Topic) DeleteExistingChannel(channelName string) error {
 }
 
 // PutMessage writes a Message to the queue
+// 发送一条消息到队列
 func (t *Topic) PutMessage(m *Message) error {
 	t.RLock()
 	defer t.RUnlock()
+	// 退出状态中就直接退出
 	if atomic.LoadInt32(&t.exitFlag) == 1 {
 		return errors.New("exiting")
 	}
+
+	// 发送消息
 	err := t.put(m)
 	if err != nil {
 		return err
 	}
+
+	// 累计发送的消息数量和大小
 	atomic.AddUint64(&t.messageCount, 1)
 	atomic.AddUint64(&t.messageBytes, uint64(len(m.Body)))
 	return nil
 }
 
 // PutMessages writes multiple Messages to the queue
+// 发送多条消息
 func (t *Topic) PutMessages(msgs []*Message) error {
 	t.RLock()
 	defer t.RUnlock()
@@ -205,6 +226,8 @@ func (t *Topic) PutMessages(msgs []*Message) error {
 	for i, m := range msgs {
 		err := t.put(m)
 		if err != nil {
+			// TODO 经典实现，发送成功了一部分，也要放入统计中去。
+			// see https://github.com/nsqio/nsq/pull/1109/files
 			atomic.AddUint64(&t.messageCount, uint64(i))
 			atomic.AddUint64(&t.messageBytes, uint64(messageTotalBytes))
 			return err
@@ -217,14 +240,18 @@ func (t *Topic) PutMessages(msgs []*Message) error {
 	return nil
 }
 
+// 将消息写到topic的channel中，如果topic的memoryMsgChan已满则将topic写到磁盘文件中
 func (t *Topic) put(m *Message) error {
 	select {
 	case t.memoryMsgChan <- m:
 	default:
+		// buffer池是为了避免重复的创建销毁buffer对象
 		b := bufferPoolGet()
+		// 写入BackendQueue中
 		err := writeMessageToBackend(b, m, t.backend)
+		// 返回给bufferBool
 		bufferPoolPut(b)
-		t.ctx.nsqd.SetHealth(err)
+		t.ctx.nsqd.SetHealth(err) // 如果出错就更新错误值
 		if err != nil {
 			t.ctx.nsqd.logf(LOG_ERROR,
 				"TOPIC(%s) ERROR: failed to write message to backend - %s",
@@ -235,12 +262,14 @@ func (t *Topic) put(m *Message) error {
 	return nil
 }
 
+// 深度： 内存中的消息个数 + （BackendQueue）队列中的数据
 func (t *Topic) Depth() int64 {
 	return int64(len(t.memoryMsgChan)) + t.backend.Depth()
 }
 
 // messagePump selects over the in-memory and backend queue and
 // writes messages to every channel for this topic
+// topic的主业务处理函数
 func (t *Topic) messagePump() {
 	var msg *Message
 	var buf []byte
@@ -263,16 +292,21 @@ func (t *Topic) messagePump() {
 		break
 	}
 	t.RLock()
+
+	// 取出该Topic下所有的Channel
 	for _, c := range t.channelMap {
 		chans = append(chans, c)
 	}
 	t.RUnlock()
+
+	// 如果存在channel，我们就需要分发数据，数据来源memoryMsgChan和backend
 	if len(chans) > 0 && !t.IsPaused() {
 		memoryMsgChan = t.memoryMsgChan
 		backendChan = t.backend.ReadChan()
 	}
 
 	// main message loop
+	// 从memoryMsgChan及DiskQueue.ReadChan中取消息，并将消息复制N份，发送到N个Channel中
 	for {
 		select {
 		case msg = <-memoryMsgChan:
@@ -283,10 +317,15 @@ func (t *Topic) messagePump() {
 				continue
 			}
 		case <-t.channelUpdateChan:
+			// 之前 避免 锁竞争, 缓存了 已存在的 channel
+			// 假如更新了 channel 会发一个 消息过来, 重新读取 channel
+			// 处理channelMap的更新
+			// TODO 这段代码为何这样写？ 老版本代码：chans = make([]*Channel, 0)
+			// see https://github.com/nsqio/nsq/commit/cefb1b2268bbd652453c0264d08907b80d41ef54
 			chans = chans[:0]
 			t.RLock()
 			for _, c := range t.channelMap {
-				chans = append(chans, c)
+				chans = append(chans, c) // 因为channelMap已经被更新，我们需要更新chans
 			}
 			t.RUnlock()
 			if len(chans) == 0 || t.IsPaused() {
@@ -298,10 +337,12 @@ func (t *Topic) messagePump() {
 			}
 			continue
 		case <-t.pauseChan:
+			// 暂停接收信息
 			if len(chans) == 0 || t.IsPaused() {
 				memoryMsgChan = nil
 				backendChan = nil
 			} else {
+				// 重新开始接收消息
 				memoryMsgChan = t.memoryMsgChan
 				backendChan = t.backend.ReadChan()
 			}
@@ -310,19 +351,22 @@ func (t *Topic) messagePump() {
 			goto exit
 		}
 
-		// TODO // 将msg复制N份，发送到topic下的N个Channel中
+		// TODO 将msg复制N份，发送到topic下的N个Channel中
 		for i, channel := range chans {
+			// TODO 这个赋值可以放到for循环外面去不？性能有没有区别？没有
 			chanMsg := msg
 			// copy the message because each channel
 			// needs a unique instance but...
 			// fastpath to avoid copy if its the first channel
 			// (the topic already created the first copy)
+			// 第一个channel不用复制消息，直接用topic的消息，后面的channel才用复制的消息
 			if i > 0 {
 				chanMsg = NewMessage(msg.ID, msg.Body)
 				chanMsg.Timestamp = msg.Timestamp
 				chanMsg.deferred = msg.deferred
 			}
 			if chanMsg.deferred != 0 {
+				// 延迟发送的消息
 				channel.PutMessageDeferred(chanMsg, chanMsg.deferred)
 				continue
 			}
@@ -340,16 +384,19 @@ exit:
 }
 
 // Delete empties the topic and all its channels and closes
+// 删除Topic
 func (t *Topic) Delete() error {
 	return t.exit(true)
 }
 
 // Close persists all outstanding topic data and closes all its channels
+// 关闭Topic
 func (t *Topic) Close() error {
 	return t.exit(false)
 }
 
 func (t *Topic) exit(deleted bool) error {
+	// 如果exitFlag=0,那么设置为1,否则说明程序正在退出
 	if !atomic.CompareAndSwapInt32(&t.exitFlag, 0, 1) {
 		return errors.New("exiting")
 	}
@@ -359,16 +406,19 @@ func (t *Topic) exit(deleted bool) error {
 
 		// since we are explicitly deleting a topic (not just at system exit time)
 		// de-register this from the lookupd
-		t.ctx.nsqd.Notify(t)
+		t.ctx.nsqd.Notify(t) // 通知NSQD，这个topic被删除了，更新元数据
 	} else {
 		t.ctx.nsqd.logf(LOG_INFO, "TOPIC(%s): closing", t.name)
 	}
 
+	// 通知相关goroutine退出
 	close(t.exitChan)
 
 	// synchronize the close of messagePump()
+	// 等待goroutine退出
 	t.waitGroup.Wait()
 
+	// 如果是删除操作，删除channelMap，清理数据
 	if deleted {
 		t.Lock()
 		for _, channel := range t.channelMap {
@@ -383,6 +433,7 @@ func (t *Topic) exit(deleted bool) error {
 	}
 
 	// close all the channels
+	// 如果是关闭操作，我们不清理数据，只关闭channel
 	for _, channel := range t.channelMap {
 		err := channel.Close()
 		if err != nil {
@@ -396,6 +447,7 @@ func (t *Topic) exit(deleted bool) error {
 	return t.backend.Close()
 }
 
+// 清理内存和磁盘中的数据
 func (t *Topic) Empty() error {
 	for {
 		select {
@@ -420,6 +472,7 @@ func (t *Topic) flush() error {
 
 	for {
 		select {
+		// 将内存中的数据写入backend（根据backend的类型判断写入目的地）
 		case msg := <-t.memoryMsgChan:
 			err := writeMessageToBackend(&msgBuf, msg, t.backend)
 			if err != nil {
@@ -457,15 +510,19 @@ func (t *Topic) AggregateChannelE2eProcessingLatency() *quantile.Quantile {
 	return latencyStream
 }
 
+// 暂停操作
 func (t *Topic) Pause() error {
 	return t.doPause(true)
 }
 
+// 重启操作
 func (t *Topic) UnPause() error {
 	return t.doPause(false)
 }
 
+// 请求暂停/重启操作
 func (t *Topic) doPause(pause bool) error {
+	// 改变状态
 	if pause {
 		atomic.StoreInt32(&t.paused, 1)
 	} else {
@@ -473,13 +530,14 @@ func (t *Topic) doPause(pause bool) error {
 	}
 
 	select {
-	case t.pauseChan <- 1:
+	case t.pauseChan <- 1: // 请求暂停/重启操作，messagePump中处理
 	case <-t.exitChan:
 	}
 
 	return nil
 }
 
+// 判断是否为暂停状态
 func (t *Topic) IsPaused() bool {
 	return atomic.LoadInt32(&t.paused) == 1
 }

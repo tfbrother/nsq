@@ -29,6 +29,10 @@ func TCPServer(listener net.Listener, handler TCPHandler, logf lg.AppLogFunc) {
 			}
 			break
 		}
+
+		// 启动一个线程, 交给 handler 处理, 这里使用的是 one connect per thread 模式
+		// 因为golang的特性, one connect per thread 模式 实际上是  one connect per goroutine
+		// 再加上golang将io操作都做了封装, 那么实际上这里是 one connect per event loop 模式
 		go handler.Handle(clientConn)
 	}
 

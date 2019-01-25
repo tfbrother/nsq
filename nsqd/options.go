@@ -14,7 +14,7 @@ import (
 
 type Options struct {
 	// basic options
-	ID        int64  `flag:"node-id" cfg:"id"`
+	ID        int64  `flag:"node-id" cfg:"id"` // 进程的唯一码(默认是主机名的哈希值%1024)
 	LogLevel  string `flag:"log-level"`
 	LogPrefix string `flag:"log-prefix"`
 	Verbose   bool   `flag:"verbose"` // for backwards compatibility

@@ -49,9 +49,11 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 	// could have changed or disabled said attributes)
 	messagePumpStartedChan := make(chan bool)
 	go p.messagePump(client, messagePumpStartedChan)
-	<-messagePumpStartedChan
+	<-messagePumpStartedChan // 确保messagePump已经运行才继续往下走
 
 	for {
+		// 如果超过client.HeartbeatInterval * 2时间间隔内未收到客户端发送的命令，说明连接处问题了，需要关闭此链接
+		// 正常情况下每隔HeartbeatInterval时间客户端都会发送一个心跳回复。
 		if client.HeartbeatInterval > 0 {
 			client.SetReadDeadline(time.Now().Add(client.HeartbeatInterval * 2))
 		} else {
@@ -60,6 +62,7 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 
 		// ReadSlice does not allocate new space for the data each request
 		// ie. the returned slice is only valid until the next call to it
+		// nsq规定所有的命令以 "\n" 结尾，命令与参数之间以空格分隔
 		line, err = client.Reader.ReadSlice('\n')
 		if err != nil {
 			if err == io.EOF {
@@ -76,13 +79,16 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 		if len(line) > 0 && line[len(line)-1] == '\r' {
 			line = line[:len(line)-1]
 		}
+		// 上传的数据
+		// 字符串按一个separatorBytes分割，并获取相应的Commad 以及该command 的相应的params
 		params := bytes.Split(line, separatorBytes)
 
 		p.ctx.nsqd.logf(LOG_DEBUG, "PROTOCOL(V2): [%s] %s", client, params)
 
+		// 处理客户端发送过来的命令
 		var response []byte
 		response, err = p.Exec(client, params)
-		if err != nil {
+		if err != nil { // 处理命令发生错误
 			ctx := ""
 			if parentErr := err.(protocol.ChildErr).Parent(); parentErr != nil {
 				ctx = " - " + parentErr.Error()
@@ -102,6 +108,7 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 			continue
 		}
 
+		// 将命令的处理结果发送给客户端
 		if response != nil {
 			err = p.Send(client, frameTypeResponse, response)
 			if err != nil {
@@ -111,9 +118,11 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 		}
 	}
 
+	// 连接出问题了，需要关闭连接
 	p.ctx.nsqd.logf(LOG_INFO, "PROTOCOL(V2): [%s] exiting ioloop", client)
 	conn.Close()
 	close(client.ExitChan)
+	// client.Channel记录的是该客户端订阅的Channel,客户端关闭的时候需要从Channel中移除这个订阅者。
 	if client.Channel != nil {
 		client.Channel.RemoveClient(client.ID)
 	}
@@ -123,6 +132,8 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 }
 
 // 给订阅者推送消息
+// TODO see nsqd: fix memory leak with large message #996
+// https://github.com/nsqio/nsq/pull/996/files
 func (p *protocolV2) SendMessage(client *clientV2, msg *Message) error {
 	p.ctx.nsqd.logf(LOG_DEBUG, "PROTOCOL(V2): writing msg(%s) to client(%s) - %s", msg.ID, client, msg.Body)
 	var buf = &bytes.Buffer{}
@@ -142,15 +153,21 @@ func (p *protocolV2) SendMessage(client *clientV2, msg *Message) error {
 
 // TODO 真正给订阅者推送消息的方法
 func (p *protocolV2) Send(client *clientV2, frameType int32, data []byte) error {
+	// 因为client 的处理 还有一个 messagePump 线程, 所以 发送要锁
 	client.writeLock.Lock()
 
+	// 设置写超时
 	var zeroTime time.Time
 	if client.HeartbeatInterval > 0 {
+		// 设置连接的超时时间net包中，Conn的函数
 		client.SetWriteDeadline(time.Now().Add(client.HeartbeatInterval))
 	} else {
 		client.SetWriteDeadline(zeroTime)
 	}
 
+	//V2 协议版本 发送给client, 是 使用 [(4byte)消息长度 , (4byte)消息类型, (载体)] 的 帧格式
+	//但是为什么这个 格式的封装不是 写在 protocal_v2.go 而是在 protocaol 定义上?
+	//个人觉得, 具体封包格式的 '具体实现' 应该在 '协议的具体实现'里,  也就是 protocal_v2, 而不是 '协议的定义' 里
 	_, err := protocol.SendFramedResponse(client.Writer, frameType, data)
 	if err != nil {
 		client.writeLock.Unlock()
@@ -158,6 +175,7 @@ func (p *protocolV2) Send(client *clientV2, frameType int32, data []byte) error 
 	}
 
 	if frameType != frameTypeMessage {
+		// 如果不是Mesaage就刷新一遍。保证数据全部发送出去
 		err = client.Flush()
 	}
 
@@ -166,6 +184,8 @@ func (p *protocolV2) Send(client *clientV2, frameType int32, data []byte) error 
 	return err
 }
 
+// http://nsq.io/clients/tcp_protocol_spec.html
+// 处理协议中的命令
 func (p *protocolV2) Exec(client *clientV2, params [][]byte) ([]byte, error) {
 	if bytes.Equal(params[0], []byte("IDENTIFY")) {
 		return p.IDENTIFY(client, params)
@@ -174,6 +194,7 @@ func (p *protocolV2) Exec(client *clientV2, params [][]byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 处理不同的命令，clientV2完成具体的工作
 	switch {
 	case bytes.Equal(params[0], []byte("FIN")):
 		return p.FIN(client, params)
@@ -201,6 +222,7 @@ func (p *protocolV2) Exec(client *clientV2, params [][]byte) ([]byte, error) {
 	return nil, protocol.NewFatalClientErr(nil, "E_INVALID", fmt.Sprintf("invalid command %s", params[0]))
 }
 
+// 每个客户端连接对象都会启动
 func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 	var err error
 	var memoryMsgChan chan *Message
@@ -215,7 +237,9 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 	subEventChan := client.SubEventChan
 	identifyEventChan := client.IdentifyEventChan
 	outputBufferTicker := time.NewTicker(client.OutputBufferTimeout)
+	// 处理心跳的timer
 	heartbeatTicker := time.NewTicker(client.HeartbeatInterval)
+	// 产生tick的channel，通过它定时发送心跳包
 	heartbeatChan := heartbeatTicker.C
 	msgTimeout := client.MsgTimeout
 
@@ -362,25 +386,30 @@ exit:
 func (p *protocolV2) IDENTIFY(client *clientV2, params [][]byte) ([]byte, error) {
 	var err error
 
+	// 如果客户端不是stateInit状态直接返回错误
 	if atomic.LoadInt32(&client.State) != stateInit {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "cannot IDENTIFY in current state")
 	}
 
+	// 读取前面四个字节，并获取消息体的长度
 	bodyLen, err := readLen(client.Reader, client.lenSlice)
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_BAD_BODY", "IDENTIFY failed to read body size")
 	}
 
+	// 如果消息体的最大长度超过最大的消息体的长度,则返回错误
 	if int64(bodyLen) > p.ctx.nsqd.getOpts().MaxBodySize {
 		return nil, protocol.NewFatalClientErr(nil, "E_BAD_BODY",
 			fmt.Sprintf("IDENTIFY body too big %d > %d", bodyLen, p.ctx.nsqd.getOpts().MaxBodySize))
 	}
 
+	// 如果长度小于0也是错误数据
 	if bodyLen <= 0 {
 		return nil, protocol.NewFatalClientErr(nil, "E_BAD_BODY",
 			fmt.Sprintf("IDENTIFY invalid body size %d", bodyLen))
 	}
 
+	// 获取消息体数据
 	body := make([]byte, bodyLen)
 	_, err = io.ReadFull(client.Reader, body)
 	if err != nil {
@@ -388,6 +417,7 @@ func (p *protocolV2) IDENTIFY(client *clientV2, params [][]byte) ([]byte, error)
 	}
 
 	// body is a json structure with producer information
+	// 因为是json数据，我们Unmarshal到结构体
 	var identifyData identifyDataV2
 	err = json.Unmarshal(body, &identifyData)
 	if err != nil {
@@ -396,6 +426,7 @@ func (p *protocolV2) IDENTIFY(client *clientV2, params [][]byte) ([]byte, error)
 
 	p.ctx.nsqd.logf(LOG_DEBUG, "PROTOCOL(V2): [%s] %+v", client, identifyData)
 
+	// client对象处理Identify
 	err = client.Identify(identifyData)
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_BAD_BODY", "IDENTIFY "+err.Error())
@@ -421,6 +452,7 @@ func (p *protocolV2) IDENTIFY(client *clientV2, params [][]byte) ([]byte, error)
 		return nil, protocol.NewFatalClientErr(nil, "E_IDENTIFY_FAILED", "cannot enable both deflate and snappy compression")
 	}
 
+	//　回复
 	resp, err := json.Marshal(struct {
 		MaxRdyCount         int64  `json:"max_rdy_count"`
 		Version             string `json:"version"`
@@ -593,25 +625,31 @@ func (p *protocolV2) CheckAuth(client *clientV2, cmd, topicName, channelName str
 	return nil
 }
 
+// Subscribe to a topic/channel
+// 订阅某个topic下面的某个channel
 func (p *protocolV2) SUB(client *clientV2, params [][]byte) ([]byte, error) {
 	if atomic.LoadInt32(&client.State) != stateInit {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "cannot SUB in current state")
 	}
 
+	// 没有设置心跳的时候我们不允许sub操作
 	if client.HeartbeatInterval <= 0 {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "cannot SUB with heartbeats disabled")
 	}
 
+	// 检查参数是否正确 SUB <topic_name> <channel_name>\n
 	if len(params) < 3 {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "SUB insufficient number of parameters")
 	}
 
+	// 获取topic名字
 	topicName := string(params[1])
 	if !protocol.IsValidTopicName(topicName) {
 		return nil, protocol.NewFatalClientErr(nil, "E_BAD_TOPIC",
 			fmt.Sprintf("SUB topic name %q is not valid", topicName))
 	}
 
+	// 获取channel名字
 	channelName := string(params[2])
 	if !protocol.IsValidChannelName(channelName) {
 		return nil, protocol.NewFatalClientErr(nil, "E_BAD_CHANNEL",
@@ -625,6 +663,8 @@ func (p *protocolV2) SUB(client *clientV2, params [][]byte) ([]byte, error) {
 	// This retry-loop is a work-around for a race condition, where the
 	// last client can leave the channel between GetChannel() and AddClient().
 	// Avoid adding a client to an ephemeral channel / topic which has started exiting.
+	// 将Client与Channel建立关联关
+	// TODO 为何会采用循环尝试？老版本中就没有使用循环的。
 	var channel *Channel
 	for {
 		topic := p.ctx.nsqd.GetTopic(topicName)
@@ -638,17 +678,23 @@ func (p *protocolV2) SUB(client *clientV2, params [][]byte) ([]byte, error) {
 		}
 		break
 	}
+	//  改变客户端的状态为stateSubscribed
 	atomic.StoreInt32(&client.State, stateSubscribed)
+	// 引用自己所订阅的Channel
 	client.Channel = channel
 	// update message pump
+	// 触发SubEvent，处理的逻辑是将SubEventChan设置为nil(也就是说不支持这个客户端改变Channel了)
+	// 同时messagePump中的subChannel知道引用哪个Channel了
 	client.SubEventChan <- channel
 
 	return okBytes, nil
 }
 
+// Update RDY state (indicate you are ready to receive N messages)
 func (p *protocolV2) RDY(client *clientV2, params [][]byte) ([]byte, error) {
 	state := atomic.LoadInt32(&client.State)
 
+	// 如果状态是stateClosing就不回复了
 	if state == stateClosing {
 		// just ignore ready changes on a closing channel
 		p.ctx.nsqd.logf(LOG_INFO,
@@ -657,12 +703,15 @@ func (p *protocolV2) RDY(client *clientV2, params [][]byte) ([]byte, error) {
 		return nil, nil
 	}
 
+	// 只有在stateSubscribed状态下RDY命令才能被处理
 	if state != stateSubscribed {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "cannot RDY in current state")
 	}
 
 	count := int64(1)
 	if len(params) > 1 {
+		// 将参数转换成十进制
+		// TODO pref
 		b10, err := protocol.ByteToBase10(params[1])
 		if err != nil {
 			return nil, protocol.NewFatalClientErr(err, "E_INVALID",
@@ -671,6 +720,7 @@ func (p *protocolV2) RDY(client *clientV2, params [][]byte) ([]byte, error) {
 		count = int64(b10)
 	}
 
+	// 判断数据是否合法
 	if count < 0 || count > p.ctx.nsqd.getOpts().MaxRdyCount {
 		// this needs to be a fatal error otherwise clients would have
 		// inconsistent state
@@ -678,26 +728,33 @@ func (p *protocolV2) RDY(client *clientV2, params [][]byte) ([]byte, error) {
 			fmt.Sprintf("RDY count %d out of range 0-%d", count, p.ctx.nsqd.getOpts().MaxRdyCount))
 	}
 
+	// 设置本次客户端最多接收的消息数量
 	client.SetReadyCount(count)
 
 	return nil, nil
 }
 
+// Finish a message (indicate successful processing)
 func (p *protocolV2) FIN(client *clientV2, params [][]byte) ([]byte, error) {
+	// 判断客户端状态是否正确
 	state := atomic.LoadInt32(&client.State)
 	if state != stateSubscribed && state != stateClosing {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "cannot FIN in current state")
 	}
 
+	// 判断参数是否正确 FIN <message_id>\n
 	if len(params) < 2 {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "FIN insufficient number of params")
 	}
 
+	// 获取 message_id
 	id, err := getMessageID(params[1])
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", err.Error())
 	}
 
+	// 告知Channel这个id的消息已经被成功的处理
+	// 具体处理方式就是从inFlightMessages队列中移除消息
 	err = client.Channel.FinishMessage(client.ID, *id)
 	if err != nil {
 		return nil, protocol.NewClientErr(err, "E_FIN_FAILED",
@@ -709,6 +766,8 @@ func (p *protocolV2) FIN(client *clientV2, params [][]byte) ([]byte, error) {
 	return nil, nil
 }
 
+// Re-queue a message (indicate failure to process)
+// 要求nsqd重新排序该消息(暗示消息出来出错)
 func (p *protocolV2) REQ(client *clientV2, params [][]byte) ([]byte, error) {
 	state := atomic.LoadInt32(&client.State)
 	if state != stateSubscribed && state != stateClosing {
@@ -745,6 +804,7 @@ func (p *protocolV2) REQ(client *clientV2, params [][]byte) ([]byte, error) {
 		timeoutDuration = clampedTimeout
 	}
 
+	// 重新排序消息
 	err = client.Channel.RequeueMessage(client.ID, *id, timeoutDuration)
 	if err != nil {
 		return nil, protocol.NewClientErr(err, "E_REQ_FAILED",
@@ -756,6 +816,8 @@ func (p *protocolV2) REQ(client *clientV2, params [][]byte) ([]byte, error) {
 	return nil, nil
 }
 
+// Cleanly close your connection (no more messages are sent)
+// 关闭连接，没有消息会被发送
 func (p *protocolV2) CLS(client *clientV2, params [][]byte) ([]byte, error) {
 	if atomic.LoadInt32(&client.State) != stateSubscribed {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "cannot CLS in current state")
@@ -766,10 +828,12 @@ func (p *protocolV2) CLS(client *clientV2, params [][]byte) ([]byte, error) {
 	return []byte("CLOSE_WAIT"), nil
 }
 
+// do nothing
 func (p *protocolV2) NOP(client *clientV2, params [][]byte) ([]byte, error) {
 	return nil, nil
 }
 
+// Publish a message to a topic
 func (p *protocolV2) PUB(client *clientV2, params [][]byte) ([]byte, error) {
 	var err error
 
@@ -822,6 +886,7 @@ func (p *protocolV2) PUB(client *clientV2, params [][]byte) ([]byte, error) {
 	return okBytes, nil
 }
 
+// Publish multiple messages to a topic (atomically)
 func (p *protocolV2) MPUB(client *clientV2, params [][]byte) ([]byte, error) {
 	var err error
 
@@ -939,6 +1004,8 @@ func (p *protocolV2) DPUB(client *clientV2, params [][]byte) ([]byte, error) {
 	return okBytes, nil
 }
 
+// Reset the timeout for an in-flight message
+// 重置待确认的消息的超时时间
 func (p *protocolV2) TOUCH(client *clientV2, params [][]byte) ([]byte, error) {
 	state := atomic.LoadInt32(&client.State)
 	if state != stateSubscribed && state != stateClosing {
@@ -966,13 +1033,16 @@ func (p *protocolV2) TOUCH(client *clientV2, params [][]byte) ([]byte, error) {
 	return nil, nil
 }
 
+// 解析多条消息
 func readMPUB(r io.Reader, tmp []byte, topic *Topic, maxMessageSize int64, maxBodySize int64) ([]*Message, error) {
+	// 读取前面的四个字节，表示消息的个数
 	numMessages, err := readLen(r, tmp)
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_BAD_BODY", "MPUB failed to read message count")
 	}
 
 	// 4 == total num, 5 == length + min 1
+	// 检验消息个数的正确性
 	maxMessages := (maxBodySize - 4) / 5
 	if numMessages <= 0 || int64(numMessages) > maxMessages {
 		return nil, protocol.NewFatalClientErr(err, "E_BAD_BODY",
@@ -981,6 +1051,7 @@ func readMPUB(r io.Reader, tmp []byte, topic *Topic, maxMessageSize int64, maxBo
 
 	messages := make([]*Message, 0, numMessages)
 	for i := int32(0); i < numMessages; i++ {
+		// 获取前面的四个字节，表示该条消息的长度
 		messageSize, err := readLen(r, tmp)
 		if err != nil {
 			return nil, protocol.NewFatalClientErr(err, "E_BAD_MESSAGE",
@@ -1017,6 +1088,7 @@ func getMessageID(p []byte) (*MessageID, error) {
 	return (*MessageID)(unsafe.Pointer(&p[0])), nil
 }
 
+// 读取前面四个字节，并获取消息的长度
 func readLen(r io.Reader, tmp []byte) (int32, error) {
 	_, err := io.ReadFull(r, tmp)
 	if err != nil {

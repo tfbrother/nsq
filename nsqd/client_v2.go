@@ -154,6 +154,7 @@ func newClientV2(id int64, conn net.Conn, ctx *context) *clientV2 {
 	return c
 }
 
+// 返回host：ip字符串
 func (c *clientV2) String() string {
 	return c.RemoteAddr().String()
 }
@@ -168,16 +169,19 @@ func (c *clientV2) Identify(data identifyDataV2) error {
 	c.UserAgent = data.UserAgent
 	c.metaLock.Unlock()
 
+	// 设置心跳超时
 	err := c.SetHeartbeatInterval(data.HeartbeatInterval)
 	if err != nil {
 		return err
 	}
 
+	// 设置writer(输出)的buffer大小
 	err = c.SetOutputBufferSize(data.OutputBufferSize)
 	if err != nil {
 		return err
 	}
 
+	// 设置buffer flush的超时时间
 	err = c.SetOutputBufferTimeout(data.OutputBufferTimeout)
 	if err != nil {
 		return err
@@ -188,6 +192,7 @@ func (c *clientV2) Identify(data identifyDataV2) error {
 		return err
 	}
 
+	// 设置Message消息超时
 	err = c.SetMsgTimeout(data.MsgTimeout)
 	if err != nil {
 		return err
@@ -210,6 +215,7 @@ func (c *clientV2) Identify(data identifyDataV2) error {
 	return nil
 }
 
+// 返回ClientStats对象
 func (c *clientV2) Stats() ClientStats {
 	c.metaLock.RLock()
 	clientID := c.ClientID
@@ -261,6 +267,7 @@ func (c *clientV2) Stats() ClientStats {
 	return stats
 }
 
+// 判断是否是生产者
 func (c *clientV2) IsProducer() bool {
 	c.metaLock.RLock()
 	retval := len(c.pubCounts) > 0
@@ -341,6 +348,7 @@ func (c *clientV2) IsReadyForMessages() bool {
 	return true
 }
 
+// 设置本次客户端最多接收的消息数量
 func (c *clientV2) SetReadyCount(count int64) {
 	atomic.StoreInt64(&c.ReadyCount, count)
 	c.tryUpdateReadyState()
@@ -356,6 +364,7 @@ func (c *clientV2) tryUpdateReadyState() {
 	}
 }
 
+// 统计发送并获取对方确认
 func (c *clientV2) FinishedMessage() {
 	atomic.AddUint64(&c.FinishCount, 1)
 	atomic.AddInt64(&c.InFlightCount, -1)
@@ -367,6 +376,7 @@ func (c *clientV2) Empty() {
 	c.tryUpdateReadyState()
 }
 
+// 统计发送的数据
 func (c *clientV2) SendingMessage() {
 	atomic.AddInt64(&c.InFlightCount, 1)
 	atomic.AddUint64(&c.MessageCount, 1)
@@ -378,11 +388,13 @@ func (c *clientV2) PublishedMessage(topic string, count uint64) {
 	c.metaLock.Unlock()
 }
 
+// 消息超时，那么需要等待的信息减１
 func (c *clientV2) TimedOutMessage() {
 	atomic.AddInt64(&c.InFlightCount, -1)
 	c.tryUpdateReadyState()
 }
 
+// 消息重新投递，更新相应的数值
 func (c *clientV2) RequeuedMessage() {
 	atomic.AddUint64(&c.RequeueCount, 1)
 	atomic.AddInt64(&c.InFlightCount, -1)
@@ -423,6 +435,7 @@ func (c *clientV2) SetHeartbeatInterval(desiredInterval int) error {
 	return nil
 }
 
+// 设置writer的buffer大小
 func (c *clientV2) SetOutputBufferSize(desiredSize int) error {
 	var size int
 
@@ -452,6 +465,7 @@ func (c *clientV2) SetOutputBufferSize(desiredSize int) error {
 	return nil
 }
 
+// 设置buffer flush的超时时间
 func (c *clientV2) SetOutputBufferTimeout(desiredTimeout int) error {
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
@@ -479,6 +493,7 @@ func (c *clientV2) SetSampleRate(sampleRate int32) error {
 	return nil
 }
 
+// 设置消息超时的时间
 func (c *clientV2) SetMsgTimeout(msgTimeout int) error {
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
