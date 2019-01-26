@@ -4,6 +4,7 @@ import (
 	"math/rand"
 )
 
+// 在[0,maxval)中随机返回quantity个数组成的slice
 func UniqRands(quantity int, maxval int) []int {
 	if maxval < quantity {
 		quantity = maxval

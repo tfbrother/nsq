@@ -749,9 +749,13 @@ func (n *NSQD) queueScanLoop() {
 					如果dirty的比例超过配置中设定的QueueScanDirtyPercent，那么不进入休眠，继续扫描，如果比例较低，则重新等待定时器触发下一轮扫描。
 				3: 这种机制可以在保证处理延时较低的情况下减少对CPU资源的浪费。
 		*/
+		// TODO 此处有疑问，会不会有可能把一个channel重复的放入workCh中去？
+		fmt.Println("UniqRands - start")
 		for _, i := range util.UniqRands(num, len(channels)) {
+			fmt.Printf("UniqRands - %d\n", i)
 			workCh <- channels[i]
 		}
+		fmt.Println("UniqRands - end")
 
 		// 接收 扫描结果, 统计 有多少 channel 是 "脏" 的
 		numDirty := 0
