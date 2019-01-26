@@ -54,6 +54,7 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 	for {
 		// 如果超过client.HeartbeatInterval * 2时间间隔内未收到客户端发送的命令，说明连接处问题了，需要关闭此链接
 		// 正常情况下每隔HeartbeatInterval时间客户端都会发送一个心跳回复。
+		// go-nsq客户端，一般采用NOP命令回复心跳。
 		if client.HeartbeatInterval > 0 {
 			client.SetReadDeadline(time.Now().Add(client.HeartbeatInterval * 2))
 		} else {
@@ -328,7 +329,9 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 
 			msgTimeout = identifyData.MsgTimeout
 		case <-heartbeatChan:
-			// 发送心跳消息
+			// 发送心跳
+			// 发送消息用p.SendMessage(client, msg)，而此处用p.Send(client, frameTypeResponse, heartbeatBytes)
+			// p.SendMessage内部调用了p.Send，p.Send更底层。此处发送心跳，frameTypeResponse参数会强制刷新网络缓冲。
 			err = p.Send(client, frameTypeResponse, heartbeatBytes)
 			if err != nil {
 				goto exit

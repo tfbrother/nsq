@@ -53,13 +53,15 @@ type identifyEvent struct {
 
 type clientV2 struct {
 	// 64bit atomic vars need to be first for proper alignment on 32bit platforms
-	ReadyCount    int64
-	InFlightCount int64
-	MessageCount  uint64
-	FinishCount   uint64
-	RequeueCount  uint64
+	// 消费者相关的统计
+	ReadyCount    int64  // 一次性可以最大接收的消息数量
+	InFlightCount int64  // 正在接收的消息数量
+	MessageCount  uint64 // 总计接收（含未接收完成的）的消息数量
+	FinishCount   uint64 // 总计接收完成的消息数量
+	RequeueCount  uint64 // 当前请求重发的消息数量
 
-	pubCounts map[string]uint64
+	// 生产者
+	pubCounts map[string]uint64 // 发布的消息数量，key为topic，只有生产者才有值。
 
 	writeLock sync.RWMutex
 	metaLock  sync.RWMutex
