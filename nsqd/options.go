@@ -96,7 +96,7 @@ func NewOptions() *Options {
 	return &Options{
 		ID:        defaultID,
 		LogPrefix: "[nsqd] ",
-		LogLevel:  "info",
+		LogLevel:  "debug",
 
 		TCPAddress:       "0.0.0.0:4150",
 		HTTPAddress:      "0.0.0.0:4151",
