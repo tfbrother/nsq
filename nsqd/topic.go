@@ -279,6 +279,7 @@ func (t *Topic) messagePump() {
 	var backendChan chan []byte
 
 	// do not pass messages before Start(), but avoid blocking Pause() or GetChannel()
+	// 在start()执行之前不进行消息推送，同时要避免阻塞Pause() or GetChannel()函数。
 	for {
 		select {
 		case <-t.channelUpdateChan:

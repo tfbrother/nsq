@@ -628,7 +628,7 @@ func (c *Channel) processInFlightQueue(t int64) bool {
 		dirty = true
 
 		//把之前存起来的 msg 取出来
-		//TODO: inFlightPQ 里存的不就是msg 么, 怎么又存一次?
+		//TODO: inFlightPQ 里存的不就是msg 么, 怎么又取一次?
 		_, err := c.popInFlightMessage(msg.clientID, msg.ID)
 		if err != nil {
 			goto exit

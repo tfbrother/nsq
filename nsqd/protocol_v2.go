@@ -64,6 +64,7 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 		// ReadSlice does not allocate new space for the data each request
 		// ie. the returned slice is only valid until the next call to it
 		// nsq规定所有的命令以 "\n" 结尾，命令与参数之间以空格分隔
+		// 如果在SetReadDeadline设置的时间内都没有读取到数据，该方法会返回错误。
 		line, err = client.Reader.ReadSlice('\n')
 		if err != nil {
 			if err == io.EOF {
@@ -80,7 +81,7 @@ func (p *protocolV2) IOLoop(conn net.Conn) error {
 		if len(line) > 0 && line[len(line)-1] == '\r' {
 			line = line[:len(line)-1]
 		}
-		// 上传的数据
+
 		// 字符串按一个separatorBytes分割，并获取相应的Commad 以及该command 的相应的params
 		params := bytes.Split(line, separatorBytes)
 
