@@ -356,6 +356,7 @@ func (c *clientV2) SetReadyCount(count int64) {
 	c.tryUpdateReadyState()
 }
 
+// https://github.com/nsqio/nsq/commit/11a31c83c5e0215938000238ad2525a5daa389f3
 func (c *clientV2) tryUpdateReadyState() {
 	// you can always *try* to write to ReadyStateChan because in the cases
 	// where you cannot the message pump loop would have iterated anyway.
@@ -571,6 +572,7 @@ func (c *clientV2) UpgradeSnappy() error {
 }
 
 func (c *clientV2) Flush() error {
+	c.ctx.nsqd.logf(LOG_DEBUG, "[%s] client flush", c)
 	var zeroTime time.Time
 	if c.HeartbeatInterval > 0 {
 		c.SetWriteDeadline(time.Now().Add(c.HeartbeatInterval))

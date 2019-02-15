@@ -44,10 +44,13 @@ type Client interface {
 
 type NSQD struct {
 	// 64bit atomic vars need to be first for proper alignment on 32bit platforms
+	// 原子值，64位的clientID是全局递增的。clientID := atomic.AddInt64(&p.ctx.nsqd.clientIDSequence, 1)
 	clientIDSequence int64
 
+	// 全局锁，对整个对象上锁
 	sync.RWMutex
 
+	// 为何采用atomic.Value类型？
 	opts atomic.Value
 
 	dl        *dirlock.DirLock // 文件锁
@@ -55,9 +58,10 @@ type NSQD struct {
 	errValue  atomic.Value // 表示健康状况的错误值
 	startTime time.Time    // 启动时间
 
-	// 一个nsqd实例可以有多个Topic,使用sync.RWMutex加锁
+	// 一个nsqd实例可以有多个Topic，使用sync.RWMutex加锁，为何不单独设计一个topicLock呢？
 	topicMap map[string]*Topic
 
+	// 局部锁，只用于更新clients属性时使用。
 	clientLock sync.RWMutex
 	clients    map[int64]Client
 
@@ -69,11 +73,13 @@ type NSQD struct {
 	httpsListener net.Listener
 	tlsConfig     *tls.Config
 
+	// 配置queueScanWorker的数量
 	poolSize int
 
-	notifyChan           chan interface{}
-	optsNotificationChan chan struct{}
-	exitChan             chan int              // 通知整体退出
+	// 用于和lookupd通信的消息缓冲
+	notifyChan           chan interface{}      // 用于给lookupd发送消息通知
+	optsNotificationChan chan struct{}         // 用于接收到了lookud的通知
+	exitChan             chan int              // 通知nsqd服务退出
 	waitGroup            util.WaitGroupWrapper // 等待goroutine退出
 
 	ci *clusterinfo.ClusterInfo

@@ -8,6 +8,7 @@ func newInFlightPqueue(capacity int) inFlightPqueue {
 
 func (pq inFlightPqueue) Swap(i, j int) {
 	pq[i], pq[j] = pq[j], pq[i]
+	// 索引不进行交换
 	pq[i].index = i
 	pq[j].index = j
 }

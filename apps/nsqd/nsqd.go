@@ -221,7 +221,9 @@ func (p *program) Start() error {
 	}
 	cfg.Validate()
 
+	// TODO 原本我配置的opts.LogLevel = "debug",为何执行该代码后就变成info了？奇怪
 	options.Resolve(opts, flagSet, cfg)
+	opts.LogLevel = "debug"
 	nsqd := nsqd.New(opts)
 
 	err := nsqd.LoadMetadata()

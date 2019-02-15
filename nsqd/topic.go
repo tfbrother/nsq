@@ -280,7 +280,10 @@ func (t *Topic) messagePump() {
 
 	// do not pass messages before Start(), but avoid blocking Pause() or GetChannel()
 	// 在start()执行之前不进行消息推送，同时要避免阻塞Pause() or GetChannel()函数。
+	// TODO 这段代码还是没有理解清楚，为了需要这个for循环？
 	for {
+		// 只有收到startChan信号，才会跳出循环往下执行。收到exitChan信号则转去执行exit
+		// 收到channelUpdateChan和pauseChan则继续执行循环，所以不会堵塞Pause() or GetChannel()
 		select {
 		case <-t.channelUpdateChan:
 			continue

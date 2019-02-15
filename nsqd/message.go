@@ -50,6 +50,7 @@ func (m *Message) WriteTo(w io.Writer) (int64, error) {
 		return total, err
 	}
 
+	// TODO 假设在写的到一半的过程中，缓冲区满了被强制刷新，该如何处理？这是tcp/ip层面的事情，分包。
 	n, err = w.Write(m.ID[:])
 	total += int64(n)
 	if err != nil {

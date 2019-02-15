@@ -139,7 +139,7 @@ func (c *Channel) initPQ() {
 }
 
 // Exiting returns a boolean indicating if this channel is closed/exiting
-// 标记Channel正在退出
+// 标记Channel正在退出/已经关闭
 func (c *Channel) Exiting() bool {
 	return atomic.LoadInt32(&c.exitFlag) == 1
 }
