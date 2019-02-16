@@ -32,8 +32,8 @@ type PeerInfo struct {
 
 type Producer struct {
 	peerInfo     *PeerInfo
-	tombstoned   bool
-	tombstonedAt time.Time
+	tombstoned   bool      // 是否逻辑删除
+	tombstonedAt time.Time // 逻辑删除的时间
 }
 
 type Producers []*Producer

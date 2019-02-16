@@ -27,9 +27,16 @@ func (p *LookupProtocolV1) IOLoop(conn net.Conn) error {
 
 	client := NewClientV1(conn)
 	reader := bufio.NewReader(client)
+	i := 0
 	for {
+		i++
+		p.ctx.nsqlookupd.logf(LOG_INFO, "[%d]", i)
+		// TODO 此处为何没有向nsqd一样，设置SetReadDeadline呢？在bufio.Reader底层，
+		// 当缓冲区里面没有数据时，会重复读取maxConsecutiveEmptyReads，如果任然没有数据，则会返回错误。
+		// nsqd是默认15秒给lookupd发送一个心跳
 		line, err = reader.ReadString('\n')
 		if err != nil {
+			p.ctx.nsqlookupd.logf(LOG_INFO, "[read timeout]")
 			break
 		}
 

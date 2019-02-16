@@ -11,16 +11,19 @@ import (
 type Options struct {
 	LogLevel  string `flag:"log-level"`
 	LogPrefix string `flag:"log-prefix"`
-	Verbose   bool   `flag:"verbose"` // for backwards compatibility
+	Verbose   bool   `flag:"verbose"` // for backwards compatibility 是否允许输出日志
 	Logger    Logger
 	logLevel  lg.LogLevel // private, not really an option
 
-	TCPAddress       string `flag:"tcp-address"`
-	HTTPAddress      string `flag:"http-address"`
+	TCPAddress  string `flag:"tcp-address"`
+	HTTPAddress string `flag:"http-address"`
+	// 这个lookupd节点的外部地址
 	BroadcastAddress string `flag:"broadcast-address"`
 
+	// 从上次 ping 之后，生产者驻留在活跃列表中的时长
 	InactiveProducerTimeout time.Duration `flag:"inactive-producer-timeout"`
-	TombstoneLifetime       time.Duration `flag:"tombstone-lifetime"`
+	// 生产者逻辑删除后，保持的时长
+	TombstoneLifetime time.Duration `flag:"tombstone-lifetime"`
 }
 
 func NewOptions() *Options {
@@ -31,7 +34,7 @@ func NewOptions() *Options {
 
 	return &Options{
 		LogPrefix:        "[nsqlookupd] ",
-		LogLevel:         "info",
+		LogLevel:         "debug",
 		TCPAddress:       "0.0.0.0:4160",
 		HTTPAddress:      "0.0.0.0:4161",
 		BroadcastAddress: hostname,
