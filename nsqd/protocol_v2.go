@@ -325,6 +325,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			}
 
 			if identifyData.SampleRate > 0 {
+				// 投递此次连接上的消息接收率。由客户端发送过来的，用于调试时用。
 				sampleRate = identifyData.SampleRate
 			}
 
@@ -495,13 +496,16 @@ func (p *protocolV2) IDENTIFY(client *clientV2, params [][]byte) ([]byte, error)
 		return nil, protocol.NewFatalClientErr(err, "E_IDENTIFY_FAILED", "IDENTIFY failed "+err.Error())
 	}
 
+	// 如果开启了tlsv1通信
 	if tlsv1 {
 		p.ctx.nsqd.logf(LOG_INFO, "PROTOCOL(V2): [%s] upgrading connection to TLS", client)
+		// 更新通信模式到tls，并完成握手
 		err = client.UpgradeTLS()
 		if err != nil {
 			return nil, protocol.NewFatalClientErr(err, "E_IDENTIFY_FAILED", "IDENTIFY failed "+err.Error())
 		}
 
+		// 立即用tls协议给用户响应ok
 		err = p.Send(client, frameTypeResponse, okBytes)
 		if err != nil {
 			return nil, protocol.NewFatalClientErr(err, "E_IDENTIFY_FAILED", "IDENTIFY failed "+err.Error())
@@ -607,6 +611,8 @@ func (p *protocolV2) AUTH(client *clientV2, params [][]byte) ([]byte, error) {
 
 }
 
+// 源码中似乎并没有区分sub和pub权限，由于sub必须要topic和channel参数，而pub只需要topic参数，
+// 所以是通过参数数量来判断是sub还是pub。在底层Authorization类中是区分了sub和pub权限的，具体看IsAllowed()方法。
 func (p *protocolV2) CheckAuth(client *clientV2, cmd, topicName, channelName string) error {
 	// if auth is enabled, the client must have authorized already
 	// compare topic/channel against cached authorization data (refetching if expired)

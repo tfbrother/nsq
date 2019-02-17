@@ -518,8 +518,10 @@ func (c *clientV2) UpgradeTLS() error {
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
 
+	// 开启tls协议
 	tlsConn := tls.Server(c.Conn, c.ctx.nsqd.tlsConfig)
 	tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
+	// 等待client TLS 握手
 	err := tlsConn.Handshake()
 	if err != nil {
 		return err
@@ -534,6 +536,7 @@ func (c *clientV2) UpgradeTLS() error {
 	return nil
 }
 
+// 更新压缩率
 func (c *clientV2) UpgradeDeflate(level int) error {
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
@@ -592,6 +595,7 @@ func (c *clientV2) Flush() error {
 	return nil
 }
 
+// 认证
 func (c *clientV2) QueryAuthd() error {
 	remoteIP, _, err := net.SplitHostPort(c.String())
 	if err != nil {
